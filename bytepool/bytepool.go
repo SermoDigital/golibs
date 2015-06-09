@@ -55,7 +55,7 @@ func (tp *BytePool) Put(el *Buffer) {
 		return
 	}
 	avg.UpdateNow(float64(el.off))
-	println(el.off, int(avg.Current))
+
 	el.off = 0
 	el.Buf = el.Buf[:cap(el.Buf)]
 	o := log2Floor(uint32(cap(el.Buf)))
