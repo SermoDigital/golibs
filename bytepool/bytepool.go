@@ -1,3 +1,4 @@
+// Copyright (c) 2015 SermoDigital, LLC.
 // Copyright (c) 2013 CloudFlare, Inc.
 
 package bytepool
@@ -6,10 +7,12 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/cloudflare/golibs/ewma"
 )
 
 type pool struct {
-	list [][]byte
+	list []*Buffer
 	mu   sync.Mutex
 }
 
@@ -17,12 +20,17 @@ type BytePool struct {
 	list_of_pools []pool
 	drainTicker   *time.Ticker
 	maxSize       int
+	*sync.Mutex
 }
+
+var avg *ewma.Ewma
 
 // Initialize BytePool structure. Starts draining regularly if
 // drainPeriod is non zero. MaxSize specifies the maximum length of a
-// byte slice that should be cached (rounded to the next power of 2).
-func (tp *BytePool) Init(drainPeriod time.Duration, maxSize uint32) {
+// Buffer that should be cached (rounded to the next power of 2).
+func (tp *BytePool) Init(drainPeriod, ewmaTime time.Duration, maxSize uint32) {
+	avg = ewma.NewEwma(ewmaTime)
+
 	maxSizeLog := log2Ceil(maxSize)
 	tp.maxSize = (1 << maxSizeLog) - 1
 	if tp.maxSize > math.MaxUint32 {
@@ -34,30 +42,36 @@ func (tp *BytePool) Init(drainPeriod time.Duration, maxSize uint32) {
 		go func() {
 			for _ = range tp.drainTicker.C {
 				tp.Drain()
+				tp.UpdateMaxSize(int(avg.Current))
 			}
 		}()
 	}
+	tp.Mutex = &sync.Mutex{}
 }
 
-// Put the byte slice back in pool.
-func (tp *BytePool) Put(el []byte) {
-	if cap(el) < 1 || cap(el) > tp.maxSize {
+// Put the Buffer back in pool.
+func (tp *BytePool) Put(el *Buffer) {
+	if cap(el.Buf) < 1 || cap(el.Buf) > tp.maxSize {
 		return
 	}
-	el = el[:cap(el)]
-	o := log2Floor(uint32(cap(el)))
+	avg.UpdateNow(float64(el.off))
+	println(el.off, int(avg.Current))
+	el.off = 0
+	el.Buf = el.Buf[:cap(el.Buf)]
+	o := log2Floor(uint32(cap(el.Buf)))
 	p := &tp.list_of_pools[o]
 	p.mu.Lock()
 	p.list = append(p.list, el)
 	p.mu.Unlock()
 }
 
-// Get a byte slice from the pool.
-func (tp *BytePool) Get(size int) []byte {
+// Get a Buffer from the pool.
+func (tp *BytePool) Get( /*size int*/ ) *Buffer {
+	size := int(avg.Current)
 	if size < 1 || size > tp.maxSize {
-		return make([]byte, size)
+		return NewBuffer(size)
 	}
-	var x []byte
+	var x *Buffer
 
 	o := log2Ceil(uint32(size))
 	p := &tp.list_of_pools[o]
@@ -68,10 +82,10 @@ func (tp *BytePool) Get(size int) []byte {
 		p.list = p.list[:n-1]
 	}
 	p.mu.Unlock()
-	if x == nil {
-		x = make([]byte, 1<<o)
+	if x != nil {
+		return x
 	}
-	return x[:size]
+	return NewBuffer(1 << o)
 }
 
 // Remove all items from the pool and make them availabe for garbage
@@ -80,7 +94,7 @@ func (tp *BytePool) Drain() {
 	for o := 0; o < len(tp.list_of_pools); o++ {
 		p := &tp.list_of_pools[o]
 		p.mu.Lock()
-		p.list = make([][]byte, 0, cap(p.list)/2)
+		p.list = make([]*Buffer, 0, cap(p.list)/2)
 		p.mu.Unlock()
 	}
 }
@@ -95,7 +109,7 @@ func (tp *BytePool) Close() {
 }
 
 // Get number of entries, for debugging
-func (tp *BytePool) entries() uint {
+func (tp *BytePool) Entries() uint {
 	var s uint
 	for o := 0; o < len(tp.list_of_pools); o++ {
 		p := &tp.list_of_pools[o]
@@ -104,6 +118,12 @@ func (tp *BytePool) entries() uint {
 		p.mu.Unlock()
 	}
 	return s
+}
+
+func (tp *BytePool) UpdateMaxSize(x int) {
+	tp.Lock()
+	defer tp.Unlock()
+	tp.maxSize = x
 }
 
 var multiplyDeBruijnBitPosition = [...]uint{0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30, 8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31}
