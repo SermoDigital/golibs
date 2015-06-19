@@ -23,13 +23,17 @@ type BytePool struct {
 	*sync.Mutex
 }
 
-var avg *ewma.Ewma
+var (
+	avg    *ewma.Ewma
+	stdOff float64
+)
 
 // Init initializes a BytePool structure. The BytePool starts draining
 // regularly if drainPeriod is non zero. MaxSize specifies the maximum
 // length of a Buffer that should be cached (rounded to the next power of 2).
 func (tp *BytePool) Init(drainPeriod, ewmaTime time.Duration, maxSize uint32) {
 	avg = ewma.NewEwma(ewmaTime)
+	stdOff = 1.5
 
 	maxSizeLog := log2Ceil(maxSize)
 	tp.maxSize = (1 << maxSizeLog) - 1
@@ -42,7 +46,7 @@ func (tp *BytePool) Init(drainPeriod, ewmaTime time.Duration, maxSize uint32) {
 		go func() {
 			for _ = range tp.drainTicker.C {
 				tp.Drain()
-				tp.UpdateMaxSize(int(avg.Current + 1.5*avg.StdDev))
+				tp.UpdateMaxSize(int(avg.Current + stdOff*avg.StdDev))
 			}
 		}()
 	}
@@ -53,16 +57,24 @@ func (tp *BytePool) Init(drainPeriod, ewmaTime time.Duration, maxSize uint32) {
 func (tp *BytePool) Put(el *Buffer) {
 	c := cap(el.Buf)
 
-	if c < 1 ||
-		c > tp.maxSize ||
-		c < int(avg.Current-(1.5*avg.StdDev)) {
+	if c > tp.maxSize ||
+		c < int(avg.Current-(stdOff*avg.StdDev)) ||
+		c < 1 {
 		return
 	}
 
 	// Update the average with the offset of the buffer. (i.e., the amount
-	// of bytes writtern to the buffer.)
+	// of bytes written to the buffer.)
 	avg.UpdateNow(float64(el.off))
 
+	// Replace the end with the number of written bytes because of some
+	// issues where buffers would initially fill up with, say, 2KB of data,
+	// and subsequent writes would write less than 2KB. Since WriteTo writes
+	// until the end of the buffer, it'd cause old data, un-overwritten by
+	// the subsequent writes to be displayed to the screen. Theoretically
+	// we could zero out the buffers, but looping over a buffer that's
+	// could be upwards of 1MB would be expensive.
+	el.end = el.off
 	el.off = 0
 	el.Buf = el.Buf[:c]
 	o := log2Floor(uint32(c))

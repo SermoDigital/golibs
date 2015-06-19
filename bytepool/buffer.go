@@ -14,7 +14,8 @@ var ErrTooLarge = errors.New("bffer: too large")
 
 type Buffer struct {
 	Buf       []byte   // Buffer contents.
-	off       int      // read at &buf[off], write at &buf[len(off)]
+	off       int      // read at &buf[off], write at &buf[len(buf)]
+	end       int      // where to end reading at
 	bootstrap [64]byte // memory to hold first slice; helps small Buffers (Printf) avoid allocation.
 }
 
@@ -30,7 +31,7 @@ func (b *Buffer) Write(p []byte) (n int, err error) {
 func (b *Buffer) WriteTo(w io.Writer) (n int64, err error) {
 	if b.off < len(b.Buf) {
 		nBytes := b.Len()
-		m, e := w.Write(b.Buf[b.off:])
+		m, e := w.Write(b.Buf[b.off:b.end])
 		if m > nBytes {
 			panic("Buffer.WriteTo: invalid Write count")
 		}
