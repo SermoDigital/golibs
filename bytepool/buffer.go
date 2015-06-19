@@ -20,7 +20,7 @@ type Buffer struct {
 }
 
 func NewBuffer(size int) *Buffer {
-	return &Buffer{Buf: make([]byte, size)}
+	return &Buffer{Buf: make([]byte, size), end: size}
 }
 
 func (b *Buffer) Write(p []byte) (n int, err error) {
