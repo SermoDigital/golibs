@@ -55,7 +55,7 @@ func (tp *BytePool) Put(el *Buffer) {
 
 	if c < 1 ||
 		c > tp.maxSize ||
-		c < avg.Current-(1.5*avg.StdDev) {
+		c < int(avg.Current-(1.5*avg.StdDev)) {
 		return
 	}
 
