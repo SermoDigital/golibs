@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudflare/golibs/ewma"
+	"github.com/SermoDigital/golibs/ewma"
 )
 
 type pool struct {
@@ -42,7 +42,7 @@ func (tp *BytePool) Init(drainPeriod, ewmaTime time.Duration, maxSize uint32) {
 		go func() {
 			for _ = range tp.drainTicker.C {
 				tp.Drain()
-				tp.UpdateMaxSize(int(avg.Current))
+				tp.UpdateMaxSize(int(avg.Current + 1.5*avg.StdDev))
 			}
 		}()
 	}
@@ -51,7 +51,11 @@ func (tp *BytePool) Init(drainPeriod, ewmaTime time.Duration, maxSize uint32) {
 
 // Put the Buffer back in pool.
 func (tp *BytePool) Put(el *Buffer) {
-	if cap(el.Buf) < 1 || cap(el.Buf) > tp.maxSize {
+	const c = cap(el.Buf)
+
+	if c < 1 ||
+		c > tp.maxSize ||
+		c < avg.Current-(1.5*avg.StdDev) {
 		return
 	}
 
@@ -60,8 +64,8 @@ func (tp *BytePool) Put(el *Buffer) {
 	avg.UpdateNow(float64(el.off))
 
 	el.off = 0
-	el.Buf = el.Buf[:cap(el.Buf)]
-	o := log2Floor(uint32(cap(el.Buf)))
+	el.Buf = el.Buf[:c]
+	o := log2Floor(uint32(c))
 	p := &tp.list_of_pools[o]
 	p.mu.Lock()
 	p.list = append(p.list, el)
