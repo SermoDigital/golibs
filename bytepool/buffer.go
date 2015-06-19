@@ -25,6 +25,7 @@ func NewBuffer(size int) *Buffer {
 
 func (b *Buffer) Write(p []byte) (n int, err error) {
 	m := b.grow(len(p))
+	b.end = m
 	return copy(b.Buf[m:], p), nil
 }
 
