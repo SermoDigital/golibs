@@ -51,7 +51,7 @@ func (tp *BytePool) Init(drainPeriod, ewmaTime time.Duration, maxSize uint32) {
 
 // Put the Buffer back in pool.
 func (tp *BytePool) Put(el *Buffer) {
-	const c = cap(el.Buf)
+	c := cap(el.Buf)
 
 	if c < 1 ||
 		c > tp.maxSize ||
