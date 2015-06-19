@@ -1,4 +1,4 @@
-// Copyright (c) 2015 SermoDigital, LLC.
+// Copyright (c) 2015 Sermo Digital, LLC.
 // Copyright (c) 2013 CloudFlare, Inc.
 
 package bytepool
@@ -25,9 +25,9 @@ type BytePool struct {
 
 var avg *ewma.Ewma
 
-// Initialize BytePool structure. Starts draining regularly if
-// drainPeriod is non zero. MaxSize specifies the maximum length of a
-// Buffer that should be cached (rounded to the next power of 2).
+// Init initializes a BytePool structure. The BytePool starts draining
+// regularly if drainPeriod is non zero. MaxSize specifies the maximum
+// length of a Buffer that should be cached (rounded to the next power of 2).
 func (tp *BytePool) Init(drainPeriod, ewmaTime time.Duration, maxSize uint32) {
 	avg = ewma.NewEwma(ewmaTime)
 
@@ -54,6 +54,9 @@ func (tp *BytePool) Put(el *Buffer) {
 	if cap(el.Buf) < 1 || cap(el.Buf) > tp.maxSize {
 		return
 	}
+
+	// Update the average with the offset of the buffer. (i.e., the amount
+	// of bytes writtern to the buffer.)
 	avg.UpdateNow(float64(el.off))
 
 	el.off = 0
@@ -66,15 +69,20 @@ func (tp *BytePool) Put(el *Buffer) {
 }
 
 // Get a Buffer from the pool.
-func (tp *BytePool) Get( /*size int*/ ) *Buffer {
+func (tp *BytePool) Get() *Buffer {
+
+	// Grab the current average. If the average is larger than the max
+	// size we have to create a new buffer for the size.
 	size := int(avg.Current)
 	if size < 1 || size > tp.maxSize {
 		return NewBuffer(size)
 	}
+
 	var x *Buffer
 
 	o := log2Ceil(uint32(size))
 	p := &tp.list_of_pools[o]
+
 	p.mu.Lock()
 	if n := len(p.list); n > 0 {
 		x = p.list[n-1]
@@ -82,13 +90,14 @@ func (tp *BytePool) Get( /*size int*/ ) *Buffer {
 		p.list = p.list[:n-1]
 	}
 	p.mu.Unlock()
+
 	if x != nil {
 		return x
 	}
 	return NewBuffer(1 << o)
 }
 
-// Remove all items from the pool and make them availabe for garbage
+// Drain all items from the pool and make them availabe for garbage
 // collection.
 func (tp *BytePool) Drain() {
 	for o := 0; o < len(tp.list_of_pools); o++ {
@@ -99,7 +108,7 @@ func (tp *BytePool) Drain() {
 	}
 }
 
-// Stop the drain ticker.
+// Close drains the pool and stops the drain ticker.
 func (tp *BytePool) Close() {
 	tp.Drain()
 	if tp.drainTicker != nil {
@@ -120,13 +129,17 @@ func (tp *BytePool) Entries() uint {
 	return s
 }
 
+// UpdateMaxSize will update the maximum allowed size of a buffer.
 func (tp *BytePool) UpdateMaxSize(x int) {
 	tp.Lock()
 	defer tp.Unlock()
 	tp.maxSize = x
 }
 
-var multiplyDeBruijnBitPosition = [...]uint{0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30, 8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31}
+var multiplyDeBruijnBitPosition = [...]uint{
+	0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
+	8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31,
+}
 
 // Equivalent to: uint(math.Floor(math.Log2(float64(n))))
 // via: http://graphics.stanford.edu/~seander/bithacks.html#IntegerLogDeBruijn

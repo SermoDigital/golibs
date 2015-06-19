@@ -3,6 +3,7 @@
 package ewma
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -54,6 +55,12 @@ var testVectorEwma = [][]testTupleEwma{
 	{
 		{10, 4, 0.45158396089583497},
 	},
+	{
+		{512, 60, 256},
+		{512, 60, 384},
+		{512, 60, 448},
+		{512, 60, 480},
+	},
 }
 
 func TestEwma(t *testing.T) {
@@ -71,6 +78,7 @@ func TestEwma(t *testing.T) {
 		for lineNo, l := range test {
 			ts = ts.Add(time.Duration(l.delay * float64(time.Second.Nanoseconds())))
 			e.Update(l.v, ts)
+			fmt.Println(e.Current)
 			if e.Current != l.cur {
 				t.Errorf("Test %d, line %d: %v != %v",
 					testNo, lineNo, e.Current, l.cur)

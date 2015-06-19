@@ -1,3 +1,4 @@
+// Copyright (c) 2015 Sermo Digital, LLC.
 // Copyright (c) 2014 CloudFlare, Inc.
 //
 // Tickless implementation of exponentially decaying moving average
@@ -16,24 +17,28 @@ import (
 	"time"
 )
 
+// Ewma is a struct that contains the current ewma.
 type Ewma struct {
 	lastTimestamp time.Time
 	weightHelper  float64
+	sum           float64
+	num           float64
 
 	// Current value of the moving average
 	Current float64
+
+	// Current standard deviation.
+	StdDev float64
 }
 
-// Allocate a new NewEwma structure
-//
-// halfLife it the time takes for a half charge or half discharge
+// NewEwma allocates a new NewEwma structure.
+// halfLife is the time takes for a half charge or half discharge.
 func NewEwma(halfLife time.Duration) *Ewma {
 	return (&Ewma{}).Init(halfLife)
 }
 
-// Initialize already allocated NewEwma structure
-//
-// halfLife it the time takes for a half charge or half discharge
+// Init initializes an already allocated NewEwma structure.
+// halfLife it the time takes for a half charge or half discharge.
 func (e *Ewma) Init(halfLife time.Duration) *Ewma {
 	*e = Ewma{
 		weightHelper: -math.Ln2 / float64(halfLife.Nanoseconds()),
@@ -41,23 +46,21 @@ func (e *Ewma) Init(halfLife time.Duration) *Ewma {
 	return e
 }
 
-func (e *Ewma) count(next float64, timeDelta time.Duration) float64 {
-	// weight = math.Exp(timedelta * math.Log(0.5) / halfLife)
+func (e *Ewma) count(next float64, timeDelta time.Duration) float64 { //(avg float64, avgsq float64) {
 	weight := math.Exp(float64(timeDelta.Nanoseconds()) * e.weightHelper)
 	return e.Current*weight + next*(1-weight)
 }
 
-// Update moving average with the value.
-//
-// Uses system clock to determine current time to count wight. Returns
-// updated moving avarage.
+// UpdateNow updates the moving average using the current time as the
+// time weight.
+// Returns the updated moving average.
 func (e *Ewma) UpdateNow(value float64) float64 {
 	return e.Update(value, time.Now())
 }
 
-// Update moving average with the value, using given time as weight
-//
-// Returns updated moving avarage.
+// Update updates the moving average, using the given time as
+// the time weight.
+// Returns the updated moving average.
 func (e *Ewma) Update(next float64, timestamp time.Time) float64 {
 	if timestamp.Before(e.lastTimestamp) || timestamp == e.lastTimestamp {
 		return e.Current
@@ -73,5 +76,13 @@ func (e *Ewma) Update(next float64, timestamp time.Time) float64 {
 	e.lastTimestamp = timestamp
 
 	e.Current = e.count(next, timeDelta)
+	e.StdDev = e.stdDev(next, timeDelta)
 	return e.Current
+}
+
+func (e *Ewma) stdDev(next float64, timeDelta time.Duration) float64 {
+	e.num++
+	n := next - e.Current
+	e.sum += n * n
+	return math.Sqrt(e.sum / e.num)
 }

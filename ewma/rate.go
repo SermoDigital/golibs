@@ -1,6 +1,6 @@
 // Copyright (c) 2014 CloudFlare, Inc.
 //
-// Facilities for tickless measurment of rates
+// Facilities for tickless measurement of rates
 //
 // Apply exponentially decaying moving average to count rates of
 // things per second. Useful for various metrics.
